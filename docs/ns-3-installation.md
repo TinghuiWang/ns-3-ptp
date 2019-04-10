@@ -25,10 +25,14 @@ To prepare your Python environment, change default version of python under `/usr
 > sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.5 2
 > sudo update-alternatives --install /usr/bin/pip pip /usr/bin/pip2 1
 > sudo update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 2
+> sudo update-alternatives --install /usr/bin/python-config python-config /usr/bin/python2-config 1
+> sudo update-alternatives --install /usr/bin/python-config python-config /usr/bin/python3-config 2
 > python --version
 Python 3.5.2
 > pip --version
 pip 8.1.1 from /usr/lib/python3/dist-packages (python 3.5)
+> python-config --libs
+-lpython3.5m -lpthread -ldl -lutil -lm
 > sudo pip install pygccxml
 ```
 
@@ -58,9 +62,29 @@ To do that, simply browse to `ns-3-dev` and execute the following command to fet
 (ns-3-allinone) > python build.py --enable-tests --enable-examples
 ```
 
+## Ubuntu 16.04 LTS with Python 2.7
 
+```bash
+sudo apt install build-essential python2.7 python2.7-dev python-pip python-setuptools git mercurial
+sudo apt install gir1.2-goocanvas-2.0 gir1.2-gtk-3.0 python-gi python-gi-cairo python-pygraphviz libgtk-3-dev python-future
+sudo apt install graphviz doxygen gsl-bin libgsl2 libgsl-dev flex bison libfl-dev tcpdump
+sudo apt install libxml2 libxml2-dev sqlite sqlite3 libsqlite3-dev pkg-config castxml libgcrypt20-dev libgcrypt20
+sudo apt install libboost-signals-dev libboost-filesystem-dev
+sudo apt install libgirepository1.0-dev
+pip install pygccxml
+pip install "PyGObject>=3.29.1"
+```
 
+```bash
+git clone https://gitlab.com/nsnam/ns-3-allinone.git
+cd ns-3-allinone
+```
 
-
-
-
+```bash
+(ns-3-allinone) > python download.py
+(ns-3-allinone) > cd ns-3-dev
+(ns-3-dev) > git fetch git@gitlab.com:leavesw/ns-3-dev.git dev-python3
+(ns-3-dev) > git checkout -b leavesw/ns-3-dev-dev-python3 FETCH_HEAD
+(ns-3-dev) > cd ..
+(ns-3-allinone) > python build.py --enable-tests --enable-examples
+```
