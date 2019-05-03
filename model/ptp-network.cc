@@ -40,10 +40,18 @@ PTPNetwork::PTPNetwork(
       m_masterIndex = 0;
       m_eventId = 0;
       m_eventCounterId = 0;
+      m_simulatingTraffic = false;
     }
 
 void PTPNetwork::addSocketLink(SocketLink *socketLink) {
   m_socketLinks.push_back(socketLink);
+}
+
+void PTPNetwork::addTrafficSocket(
+  SocketLink *txLink, SocketLink *rxLink
+) {
+  m_txTrafficLinks.push_back(txLink);
+  m_rxTrafficLinks.push_back(rxLink);
 }
 
 void PTPNetwork::addNode(PtpNode *node) {
@@ -298,6 +306,74 @@ void PTPNetwork::setLocalTimeAtNodes() {
   for(uint32_t i = 0; i < m_nodes.size(); i++) {
     m_nodes[i]->setLocalTime(m_globalTime);
   }
+}
+
+void PTPNetwork::startTcpTraffic(Time interval, uint32_t packetSize) {
+  char *msg;
+  TcpEchoMessageHeader_t *pktHdr;
+  m_trafficInterval = interval;
+  m_trafficPacketSize = packetSize;
+  m_simulatingTraffic = true;
+  std::cout << "Start TCP Echo packets with interval " << interval <<
+    " with each packet of size " << packetSize << " Bytes." << std::endl;
+  for(uint32_t i = 0; i < m_txTrafficLinks.size(); i++) {
+    msg = (char *) std::malloc(m_trafficPacketSize);
+    pktHdr = (TcpEchoMessageHeader_t *) msg;
+    pktHdr->rxNodeId = m_txTrafficLinks[i]->getDstId();
+    pktHdr->txNodeId = m_txTrafficLinks[i]->getHostId();
+    pktHdr->eventId = 0;
+    m_txTrafficLinks[i]->getSocket()->Send(
+      Create<Packet>((uint8_t *) msg, m_trafficPacketSize)
+    );
+    free(msg);
+  }
+}
+
+void PTPNetwork::stopTcpTraffic() {
+  m_simulatingTraffic = false;
+}
+
+void PTPNetwork::recvTcpTraffic(Ptr<Socket> socket) {
+  // Acquire packets from socket
+  Ptr<Packet> pktReceived = socket->Recv();
+  uint32_t pktLength = pktReceived->GetSize();
+  uint8_t *msg = (uint8_t *) std::malloc(pktLength);
+  pktReceived->CopyData((uint8_t *) msg, pktLength);
+  TcpEchoMessageHeader_t *pktHdr = (TcpEchoMessageHeader_t *) msg;
+  uint16_t rxNodeId = pktHdr->rxNodeId;
+  uint16_t txNodeId = pktHdr->txNodeId;
+  
+  std::cout << "Received simulated message " << pktHdr->eventId << 
+    " (" << pktLength << " Bytes) from " <<
+    txNodeId << " to " << rxNodeId << "." << std::endl;
+
+  // Prepare Sender Packet
+  pktHdr->txNodeId = rxNodeId;
+  pktHdr->rxNodeId = txNodeId;
+  pktHdr->eventId ++;
+
+  // Echo Message if still simulating
+  if(m_simulatingTraffic) {
+    Simulator::Schedule(
+      m_trafficInterval, PTPNetwork::echoTcpTraffic, this,
+      txNodeId, rxNodeId, msg
+    );
+  }
+}
+
+void PTPNetwork::echoTcpTraffic(
+  uint16_t hostId, uint16_t rxNodeId, uint8_t *msg
+) {
+  Ptr<Socket> socket;
+  if(hostId == m_users) {
+    socket = m_txTrafficLinks[rxNodeId]->getSocket();
+  } else {
+    socket = m_rxTrafficLinks[hostId]->getSocket();
+  }
+  socket->Send(
+    Create<Packet>(msg, m_trafficPacketSize)
+  );
+  free(msg);
 }
 
 void PTPNetwork::printClockValuesOfNodes(

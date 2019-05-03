@@ -59,8 +59,10 @@ int main(int argc, char **argv) {
     StringValue (phyMode));
 
   // Create nodes
+  // Not only create `nUsers` nodes for PTP terminals,
+  // but add the `nUsers + 1`th node for traffic generation
   NodeContainer nodes;
-  nodes.Create(nUsers);
+  nodes.Create(nUsers + 1);
 
   // The following helpers will put together the wifi NICs
   WifiHelper wifi;
@@ -89,10 +91,10 @@ int main(int argc, char **argv) {
   WifiMacHelper wifiMac;
   wifiMac.SetType("ns3::AdhocWifiMac", "QosSupported", BooleanValue(false));
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-    "DataMode",StringValue (phyMode), "ControlMode",StringValue (phyMode));
+    "DataMode",StringValue(phyMode), "ControlMode", StringValue(phyMode));
 
   // Create the net devices
-  NetDeviceContainer devices = wifi.Install (wifiPhy, wifiMac, nodes);
+  NetDeviceContainer devices = wifi.Install(wifiPhy, wifiMac, nodes);
 
   // Note that with FixedRssLossModel, the positions below are not used for
   // received signal strength. However they are required for YansWifiChannelHelper.
@@ -117,11 +119,13 @@ int main(int argc, char **argv) {
   ipv4.SetBase("10.1.1.0", "255.255.255.0");
   ipv4.Assign(devices);
   TypeId tid = TypeId::LookupByName("ns3::UdpSocketFactory");
+  TypeId tcpId = TypeId::LookupByName("ns3::TcpSocketFactory");
 
   // List of Ipv4 Address
   //int hopOfNode[ 3 ] ={ 0, 1, 1 };
-  char ipv4Add[6][12] = { "10.1.1.1", "10.1.1.2" , "10.1.1.3",
-                          "10.1.1.4", "10.1.1.5" , "10.1.1.6" };
+  char ipv4Add[7][12] = { "10.1.1.1", "10.1.1.2" , "10.1.1.3",
+                          "10.1.1.4", "10.1.1.5" , "10.1.1.6",
+                          "10.1.1.7" };
 
   uint16_t connectToPortAtNode[6] = { 100, 200, 300, 400, 500, 600};
   uint16_t hopOfNode[6] = {0, 1, 2, 3, 4, 5};
@@ -149,16 +153,16 @@ int main(int argc, char **argv) {
   // Store static PTP nodes
   std::vector<PtpNode *> staticNodes(nUsers);
   // Store IPv4 address of each node
-  std::vector<Ipv4Address> ipv4Address(nUsers);
+  std::vector<Ipv4Address> ipv4Address(nUsers + 1);
   // Socket to neighbor node
   std::vector<std::vector<Ptr<Socket>>> neighbor(nUsers);
   // List of socket links established in the network
   std::vector<SocketLink *> socketLinks(10);
 
-  uint16_t i, j, socket_count=0, srcPort;
+  uint16_t i, j, socket_count=0, srcPort, dstPort;
 
   // create Ipv4 address 
-  for( i=0; i < nUsers;i++){
+  for( i=0; i < nUsers + 1;i++){
     ipv4Address[i] = Ipv4Address(ipv4Add[i]);
   }
 
@@ -208,9 +212,30 @@ int main(int argc, char **argv) {
       j++;
     }
     ptpTest.addNode(staticNodes[i]);
+    // Create Socket for simulating network traffic
+    srcPort = i * 1000;
+    dstPort = nUsers * 1000 + i;
+    Ptr<Socket> rxTrafficSocket = Socket::CreateSocket(nodes.Get(i), tcpId);
+    rxTrafficSocket->Bind(InetSocketAddress(ipv4Address[i], srcPort));
+    rxTrafficSocket->Connect(InetSocketAddress(ipv4Address[nUsers], dstPort));
+    rxTrafficSocket->SetRecvCallback(&PTPNetwork::recvTcpTraffic, &ptpTest);
+    Ptr<Socket> txTrafficSocket = Socket::CreateSocket(nodes.Get(nUsers), tcpId);
+    txTrafficSocket->Bind(InetSocketAddress(ipv4Address[nUsers], dstPort));
+    txTrafficSocket->Connect(InetSocketAddress(ipv4Address[i], srcPort));
+    txTrafficSocket->SetRecvCallback(&PTPNetwork::recvTcpTraffic, &ptpTest);
+    ptpTest.addTrafficSocket(
+      new SocketLink(
+        nUsers, i, ipv4Address[nUsers], dstPort, ipv4Address[i], srcPort,
+        txTrafficSocket
+      ),
+      new SocketLink(
+        i, nUsers, ipv4Address[i], srcPort, ipv4Address[nUsers], dstPort,
+        rxTrafficSocket
+      )
+    );
   }
 
-  Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
+  Ipv4GlobalRoutingHelper::PopulateRoutingTables();
   // Pcap tracing
   wifiPhy.EnablePcap ("ptp-wifi-broadcast", devices);
 
@@ -221,6 +246,7 @@ int main(int argc, char **argv) {
   anim.SetConstantPosition(nodes.Get(3), 12.0, 15.0);
   anim.SetConstantPosition(nodes.Get(4), 16.0, 15.0);
   anim.SetConstantPosition(nodes.Get(5), 20.0, 15.0);
+  anim.SetConstantPosition(nodes.Get(6), 10.0, 5.0);
   anim.EnablePacketMetadata(true);
   int clkOffsetCounterId = anim.AddNodeCounter(
     "offset_error", AnimationInterface::DOUBLE_COUNTER
@@ -228,8 +254,13 @@ int main(int argc, char **argv) {
   ptpTest.setAnimationInterface(
     &anim, clkOffsetCounterId
   );
-  ptpTest.setSimulationIterations(1000);
+  ptpTest.setSimulationIterations(10);
   
+  Simulator::ScheduleWithContext(
+    nUsers, Seconds(1.0), &PTPNetwork::startTcpTraffic, &ptpTest,
+    Seconds(1.0), 1024
+  );
+
   Simulator::ScheduleWithContext(
     neighbor[0][0]->GetNode()->GetId(),
     Seconds(1.0),

@@ -60,6 +60,16 @@ public:
    * @param socketLink 
    */
   void addSocketLink(SocketLink *socketLink);
+  
+  /**
+   * @brief Add Tx/Rx sockets for simulated network traffic in PTP network
+   * 
+   * @param txLink 
+   * @param rxLink 
+   */
+  void addTrafficSocket(
+    SocketLink *txLink, SocketLink *rxLink
+  );
 
   /**
    * @brief Add PTP Node to network
@@ -124,6 +134,29 @@ public:
   void sendDrplyPacket(SocketLink *socketLink, int eventId);
 
   /**
+   * @brief Start TCP traffic simulation
+   * 
+   * @param interval 
+   * @param packetSize 
+   */
+  void startTcpTraffic(Time interval, uint32_t packetSize);
+
+  /**
+   * @brief Stop TCP traffic simulation
+   */
+  void stopTcpTraffic();
+
+  /**
+   * @brief Bind the receiving function to sockets binded on receiver of simulated TCP traffic.
+   */
+  void recvTcpTraffic(Ptr<Socket> socket);
+
+  /**
+   * @brief Echo simulated traffic received from TCP socket
+   */
+  void echoTcpTraffic(uint16_t hostId, uint16_t rxNodeId, uint8_t *msg);
+
+  /**
    * @brief Print clock values of a PTP node in the system
    * 
    * @param txIp 
@@ -137,7 +170,8 @@ public:
   void printClockValuesOfNodes(
     Ipv4Address txIp, Ipv4Address rxIp, 
     uint16_t txHop, PtpMessageType_t msgType,
-    Time dreqAtMaster, Time syncSendTime, int id);
+    Time dreqAtMaster, Time syncSendTime, int id
+  );
 
   /**
    * @brief Set the Animation Interface
@@ -165,6 +199,12 @@ private:
   Time m_globalTime; //< Simulator global time
   const uint32_t m_packetSize; //< Packet Size
   const Time m_interPacketInterval; //< Synchronization Interval
+
+  std::vector<SocketLink *> m_txTrafficLinks; //< Sockets on traffic generator node sending simulated traffic.
+  std::vector<SocketLink *> m_rxTrafficLinks; //< Sockets on PTP nodes receiving simulated traffic.
+  Time m_trafficInterval; //< Interval to send TCP packets to simulate network traffic
+  uint32_t m_trafficPacketSize; //< Size of each TCP packet for network traffic simulation
+  bool m_simulatingTraffic; //< Whether simulating the traffic at the moment
 
   AnimationInterface *m_anim; //< Animation interface for logging
   int m_ptpOffsetCounterId; //< Animation interface clock offset counter ID

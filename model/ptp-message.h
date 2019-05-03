@@ -45,11 +45,18 @@ typedef enum {
  * @brief Simulated information needed in PTP message.
  */
 typedef struct PtpMessage {
-    uint16_t txNodeId;
-    uint16_t txNodeHop;
-    PtpMessageType_t messageType;
-    int eventId;
-    int64_t timeStamp;
+  uint16_t txNodeId;
+  uint16_t txNodeHop;
+  PtpMessageType_t messageType;
+  int eventId;
+  int64_t timeStamp;
 } PtpMessage_t;
+
+typedef struct TcpEchoMessageHeader {
+  uint16_t txNodeId;
+  uint16_t rxNodeId;
+  uint64_t eventId;
+  ;
+} TcpEchoMessageHeader_t;
 
 #endif
