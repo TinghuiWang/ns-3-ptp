@@ -24,6 +24,8 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE("PtpNode");
+
 PtpNode::PtpNode(
   const uint16_t id,
   const uint16_t masterId,
@@ -48,12 +50,13 @@ PtpNode::PtpNode(
   m_clockError = ( rand() % 12 ) * 0.012 / 12 + 0.994;
   m_prevOffsetError = 0;
   m_currOffsetError = 0;
-  
+
   // Initialize the number of packets per message type to zero
   for(int j=0; j < 4; j++) {
     m_sentPacket.push_back(0);
     m_receivedPacket.push_back(0);
     m_overheardPacket.push_back(0);
+    m_ptpMsgSyncId.push_back(0);
   }
 }
 
@@ -201,6 +204,7 @@ void PtpNode::addNeighbor(
 ) {
   m_dreqRecvTimeStamps.push_back(NanoSeconds(0));
   m_syncSendTimeStamps.push_back(NanoSeconds(0));
+  m_masterSyncId.push_back(0);
   m_neighbors.push_back(nodeId);
   m_sockets.push_back(txSocket);
 }
@@ -219,6 +223,27 @@ SocketLink *PtpNode::getTxSocketByNodeId(uint16_t nodeId) {
   } else {
     return NULL;
   }
+}
+
+uint64_t PtpNode::getNewSyncId(uint16_t nodeId) {
+  unsigned int i = 0;
+  while(i < m_neighbors.size() && m_neighbors[i] != nodeId) {
+    i++;
+  }
+  if(i < m_neighbors.size()) {
+    m_masterSyncId[i]++;
+    return m_masterSyncId[i];
+  } else {
+    return 0;
+  }
+}
+
+void PtpNode::setPtpSyncId(PtpMessageType_t msgType, uint64_t syncId) {
+  m_ptpMsgSyncId[msgType] = syncId;
+}
+
+uint64_t PtpNode::getPtpSyncId(PtpMessageType_t msgType) {
+  return m_ptpMsgSyncId[msgType];
 }
 
 void PtpNode::incrementSentPacketCounter(PtpMessageType_t msgType) {
@@ -244,9 +269,12 @@ void PtpNode::calculateOffset(Time masterTime) {
     m_currOffsetError = std::abs((
       m_localTime.GetNanoSeconds() - masterTime.GetNanoSeconds()
     ));
-    std::cout << "Node " << m_nodeId << ": Clock synchronized." << std::endl <<
+    std::stringstream calculateOffsetLog;
+    calculateOffsetLog << "Node " << m_nodeId << ": Clock synchronized." << 
+      std::endl <<
       "Offset Before Sync: " << m_prevOffsetError << std::endl <<
-      "Offset After Sync: " << m_currOffsetError;
+      "Offset After Sync: " << m_currOffsetError << std::endl;
+    NS_LOG_DEBUG(calculateOffsetLog.str());
   }
 }
 

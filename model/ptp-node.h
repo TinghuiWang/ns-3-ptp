@@ -281,6 +281,12 @@ public:
 
   double getCurrentOffsetError();
 
+  uint64_t getNewSyncId(uint16_t nodeId);
+
+  void setPtpSyncId(PtpMessageType_t msgType, uint64_t syncId);
+
+  uint64_t getPtpSyncId(PtpMessageType_t msgType);
+
 private:
   Time m_localTime; // Local time
   Time m_simulatorTime; // Global Simulation Time
@@ -294,10 +300,12 @@ private:
   /* Local time stamp */
   Time m_syncRecvTime; //< The time stamp when SYNC message is received
   Time m_dreqSendTime; //< The time stamp when the slave node sends DREQ message
+  std::vector<uint64_t> m_ptpMsgSyncId;
 
   /* Time stamps used with current node as clock master for other slave neighbors */
   std::vector<Time> m_syncSendTimeStamps; //< The time stamp when SYNC is sent to each neighbor.
   std::vector<Time> m_dreqRecvTimeStamps; //< The time stamp when DREQ is received from each neighbor.
+  std::vector<uint64_t> m_masterSyncId;
 
   Time m_offset; //< Local offset to the global time of the simulator
 

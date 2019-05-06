@@ -9,7 +9,9 @@
 def build(bld):
     module = bld.create_ns3_module('ptp', ['core'])
     module.source = [
-        'model/ptp.cc',
+        'model/ptp-network.cc',
+        'model/ptp-node.cc',
+        'model/ptp-socket-link.cc',
         'helper/ptp-helper.cc',
         ]
 
@@ -21,7 +23,10 @@ def build(bld):
     headers = bld(features='ns3header')
     headers.module = 'ptp'
     headers.source = [
-        'model/ptp.h',
+        'model/ptp-network.h',
+        'model/ptp-node.h',
+        'model/ptp-socket-link.h',
+        'model/ptp-message.h',
         'helper/ptp-helper.h',
         ]
 
@@ -29,4 +34,3 @@ def build(bld):
         bld.recurse('examples')
 
     # bld.ns3_python_bindings()
-

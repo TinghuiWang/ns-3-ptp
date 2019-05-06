@@ -2,8 +2,6 @@
 #ifndef PTP_HELPER_H
 #define PTP_HELPER_H
 
-#include "ns3/ptp.h"
-
 namespace ns3 {
 
 /* ... */

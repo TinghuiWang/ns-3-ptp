@@ -27,6 +27,7 @@
 #include "ns3/netanim-module.h"
 #include <vector>
 #include <cstdlib>
+#include <fstream>
 #include "ptp-node.h"
 #include "ptp-socket-link.h"
 
@@ -51,7 +52,8 @@ public:
   PTPNetwork (
     const uint32_t users,
     const uint32_t packetSize,
-    const Time interPacketInterval
+    const Time interPacketInterval,
+    const std::string logdir
   );
 
   /**
@@ -60,6 +62,8 @@ public:
    * @param socketLink 
    */
   void addSocketLink(SocketLink *socketLink);
+
+  void setLogdir(std::string logdir);
   
   /**
    * @brief Add Tx/Rx sockets for simulated network traffic in PTP network
@@ -149,12 +153,14 @@ public:
   /**
    * @brief Bind the receiving function to sockets binded on receiver of simulated TCP traffic.
    */
-  void recvTcpTraffic(Ptr<Socket> socket);
+  void recvTcpTraffic (Ptr<Socket> socket);
 
   /**
    * @brief Echo simulated traffic received from TCP socket
    */
-  void echoTcpTraffic(uint16_t hostId, uint16_t rxNodeId, uint8_t *msg);
+  void echoTcpTraffic(
+    uint16_t hostId, uint16_t rxNodeId, uint64_t eventId, uint32_t pktLength
+  );
 
   /**
    * @brief Print clock values of a PTP node in the system
@@ -185,6 +191,8 @@ public:
 
   void setSimulationIterations(int iterations);
 
+  void closeLogs();
+
 private:
   int m_iterations; //< Iterations to run
 
@@ -208,6 +216,9 @@ private:
 
   AnimationInterface *m_anim; //< Animation interface for logging
   int m_ptpOffsetCounterId; //< Animation interface clock offset counter ID
+
+  std::string m_logdir;
+  std::vector<std::ofstream *> m_fileStreams;
 };
 
 #endif /* PTP_NETWORK_H */

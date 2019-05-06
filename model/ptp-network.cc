@@ -28,13 +28,17 @@
 
 using namespace ns3;
 
+NS_LOG_COMPONENT_DEFINE("PtpNetwork");
+
 PTPNetwork::PTPNetwork(
   const uint32_t users,
   const uint32_t packetSize,
-  const Time interPacketInterval
+  const Time interPacketInterval,
+  const std::string logdir
 ) : m_users(users),
     m_packetSize(packetSize),
-    m_interPacketInterval(interPacketInterval)
+    m_interPacketInterval(interPacketInterval),
+    m_logdir(logdir)
     {
       m_iterations = 1;
       m_masterIndex = 0;
@@ -42,6 +46,10 @@ PTPNetwork::PTPNetwork(
       m_eventCounterId = 0;
       m_simulatingTraffic = false;
     }
+
+void PTPNetwork::setLogdir(std::string logdir) {
+  m_logdir = logdir;
+}
 
 void PTPNetwork::addSocketLink(SocketLink *socketLink) {
   m_socketLinks.push_back(socketLink);
@@ -55,7 +63,11 @@ void PTPNetwork::addTrafficSocket(
 }
 
 void PTPNetwork::addNode(PtpNode *node) {
+  std::stringstream nodeStatFilename;
+  nodeStatFilename << "node_" << node->getNodeId() << ".dat";
+  std::ofstream *nodeStatistics = new std::ofstream(m_logdir + nodeStatFilename.str());
   m_nodes.push_back(node);
+  m_fileStreams.push_back(nodeStatistics);
 }
 
 PtpNode *PTPNetwork::getNodeById(uint16_t nodeId) {
@@ -104,6 +116,7 @@ void PTPNetwork::receivePacket(Ptr<Socket> socket) {
     hostNode->setSyncRecvTime(hostNode->getLocalTime());
     hostNode->increaseReceivedPacketCounter(ptpMessage->messageType);
     hostNode->setState(ACTIVE);
+    hostNode->setPtpSyncId(SYNC, ptpMessage->syncId);
     printClockValuesOfNodes(
       senderNode->getIpv4Address(), hostNode->getIpv4Address(),
       senderNode->getNodeHop(), ptpMessage->messageType,
@@ -114,6 +127,7 @@ void PTPNetwork::receivePacket(Ptr<Socket> socket) {
     // store SYNC send time and send DREQ
     hostNode->setSyncTimeAtMaster(NanoSeconds(ptpMessage->timeStamp));
     hostNode->increaseReceivedPacketCounter(ptpMessage->messageType);
+    hostNode->setPtpSyncId(FOLLOW, ptpMessage->syncId);
     // Delay update local time until the end of sequence
     printClockValuesOfNodes(
       senderNode->getIpv4Address(), hostNode->getIpv4Address(),
@@ -121,13 +135,16 @@ void PTPNetwork::receivePacket(Ptr<Socket> socket) {
       senderNode->getDreqSendTime(), senderNode->getSyncSendTimeStamp(hostId),
       ptpMessage->eventId
     );
-    // Schedule DREQ Packet Send
-    m_eventId++;
-    Simulator::Schedule(
-      NanoSeconds(0), 
-      &PTPNetwork::sendDreqPacket,
-      this, socketLink, m_eventId
-    );
+    // Need to check if both FOLLOW and SYNC belong to same event
+    if(hostNode->getPtpSyncId(SYNC) == hostNode->getPtpSyncId(FOLLOW)) {
+      // Schedule DREQ Packet Send
+      m_eventId++;
+      Simulator::Schedule(
+        NanoSeconds(0), 
+        &PTPNetwork::sendDreqPacket,
+        this, socketLink, m_eventId
+      );
+    }
   } else if(ptpMessage->messageType == DREQ) {
     // Time stamp, and then send DRPLY
     hostNode->setDreqRecvTimeStamp(hostNode->getLocalTime(), ptpMessage->txNodeId);
@@ -157,6 +174,9 @@ void PTPNetwork::receivePacket(Ptr<Socket> socket) {
       hostNode->getNodeId(), 
       hostNode->getCurrentOffsetError()
     );
+    *m_fileStreams[hostNode->getNodeId()] << 
+      hostNode->getCurrentOffsetError() << std::endl;
+    // m_fileStreams[hostNode->getNodeId()]->flush();
     printClockValuesOfNodes(
       senderNode->getIpv4Address(), hostNode->getIpv4Address(),
       senderNode->getNodeHop(), ptpMessage->messageType,
@@ -189,7 +209,7 @@ void PTPNetwork::startPTPProtocol() {
   for(int i = 0; i < master->getNumNeighbors(); i++) {
     SocketLink *sockToNeighbor = master->getTxSocket(i);
     Simulator::Schedule(
-      m_interPacketInterval, 
+      NanoSeconds(5), 
       &PTPNetwork::sendSyncFollowPacket, this, 
       sockToNeighbor, m_eventId
     );
@@ -211,12 +231,14 @@ void PTPNetwork::sendSyncFollowPacket(
   uint16_t rxId = socketLink->getDstId();
   PtpNode *txNode = m_nodes[txId];
   Ptr<Socket> sock = socketLink->getSocket();
+  uint64_t syncId = txNode->getNewSyncId(rxId);
 
   PtpMessage_t *msgSync = (PtpMessage_t *) std::malloc(sizeof(PtpMessage_t));
   msgSync->txNodeId = txNode->getNodeId();
   msgSync->txNodeHop = txNode->getNodeHop();
   msgSync->messageType = SYNC;
   msgSync->eventId = eventId;
+  msgSync->syncId = syncId;
   msgSync->timeStamp = txNode->getSyncSendTimeStamp(rxId).GetNanoSeconds();
 
   // Send Sync Packet
@@ -227,7 +249,7 @@ void PTPNetwork::sendSyncFollowPacket(
   m_globalTime = NanoSeconds(Simulator::Now());
   setLocalTimeAtNodes();
   txNode->setSyncSendTimeStamp(txNode->getLocalTime(), rxId);
-  std::cout << "sending SYNC packet" << std::endl;
+  NS_LOG_DEBUG("sending SYNC packet\n");
   txNode->incrementSentPacketCounter(SYNC);
 
   // constructing FOLLOW-UP packet
@@ -236,6 +258,7 @@ void PTPNetwork::sendSyncFollowPacket(
   msgFollow->txNodeHop = txNode->getNodeHop();
   msgFollow->messageType = FOLLOW;
   msgFollow->eventId = eventId;
+  msgFollow->syncId = syncId;
   msgFollow->timeStamp = txNode->getSyncSendTimeStamp(rxId).GetNanoSeconds();
 
   // Send FOLLOW UP Packet
@@ -245,7 +268,7 @@ void PTPNetwork::sendSyncFollowPacket(
   // TimeStamping?
   m_globalTime = NanoSeconds(Simulator::Now());
   setLocalTimeAtNodes();
-  std::cout << "sending FOLLOW packet" << std::endl;
+  NS_LOG_DEBUG("sending FOLLOW packet\n");
   txNode->incrementSentPacketCounter(FOLLOW);
 
   // Free both malloced buffer
@@ -271,7 +294,7 @@ void PTPNetwork::sendDreqPacket(SocketLink *socketLink, int eventId) {
   m_globalTime = NanoSeconds(Simulator::Now());
   setLocalTimeAtNodes();
   txNode->setDreqSendTime(txNode->getLocalTime());
-  std::cout << "sending DREQ packet" << std::endl;
+  NS_LOG_DEBUG("sending DREQ packet\n");
   txNode->incrementSentPacketCounter(DREQ);
 
   // Free malloced buffer
@@ -295,7 +318,7 @@ void PTPNetwork::sendDrplyPacket(SocketLink *socketLink, int eventId) {
   // Time Stamp
   m_globalTime = NanoSeconds(Simulator::Now());
   setLocalTimeAtNodes();
-  std::cout << "sending DRPLY packet" << std::endl;
+  NS_LOG_DEBUG("sending DRPLY packet\n");
   txNode->incrementSentPacketCounter(DRPLY);
 
   // Free malloced buffer
@@ -347,32 +370,36 @@ void PTPNetwork::recvTcpTraffic(Ptr<Socket> socket) {
     " (" << pktLength << " Bytes) from " <<
     txNodeId << " to " << rxNodeId << "." << std::endl;
 
-  // Prepare Sender Packet
-  pktHdr->txNodeId = rxNodeId;
-  pktHdr->rxNodeId = txNodeId;
-  pktHdr->eventId ++;
-
   // Echo Message if still simulating
   if(m_simulatingTraffic) {
     Simulator::Schedule(
-      m_trafficInterval, PTPNetwork::echoTcpTraffic, this,
-      txNodeId, rxNodeId, msg
+      m_trafficInterval, &PTPNetwork::echoTcpTraffic, this,
+      rxNodeId, txNodeId, pktHdr->eventId + 1, pktLength
     );
   }
+
+  free(msg);
 }
 
 void PTPNetwork::echoTcpTraffic(
-  uint16_t hostId, uint16_t rxNodeId, uint8_t *msg
+  uint16_t hostId, uint16_t rxNodeId, uint64_t eventId, uint32_t pktLength
 ) {
+  uint8_t *msg = (uint8_t *) std::malloc(pktLength);
   Ptr<Socket> socket;
   if(hostId == m_users) {
     socket = m_txTrafficLinks[rxNodeId]->getSocket();
   } else {
     socket = m_rxTrafficLinks[hostId]->getSocket();
   }
+  TcpEchoMessageHeader_t *pktHdr = (TcpEchoMessageHeader_t *) msg;
+  pktHdr->txNodeId = hostId;
+  pktHdr->rxNodeId = rxNodeId;
+  pktHdr->eventId = eventId;
+
   socket->Send(
     Create<Packet>(msg, m_trafficPacketSize)
   );
+
   free(msg);
 }
 
@@ -400,15 +427,17 @@ void PTPNetwork::printClockValuesOfNodes(
       break;
   }
 
-  std::cout << "----------------------------------------- " << std::endl;
-  std::cout << " Sender: " << txIp << " [hop: " << txHop << "]" << std::endl;
-  std::cout << " Receiver: " << rxIp << std::endl;
-  std::cout << " Message Type: " << strMsgType << " , ID: " << id << std::endl;
-  std::cout << " TxNode Timestamps: " << 
+  std::stringstream clockValuesLog;
+
+  clockValuesLog << "----------------------------------------- " << std::endl;
+  clockValuesLog << " Sender: " << txIp << " [hop: " << txHop << "]" << std::endl;
+  clockValuesLog << " Receiver: " << rxIp << std::endl;
+  clockValuesLog << " Message Type: " << strMsgType << " , ID: " << id << std::endl;
+  clockValuesLog << " TxNode Timestamps: " << 
     std::setw(12) << dreqAtMaster.GetNanoSeconds() << " [DREQ], " <<
     std::setw(12) << syncSendTime.GetNanoSeconds() << " [SYNC]" << std::endl;
-  std::cout << std::endl;
-  std::cout << std::setw(6) << "NodeId" << " => " <<
+  clockValuesLog << std::endl;
+  clockValuesLog << std::setw(6) << "NodeId" << " => " <<
     std::setw(12) << "ClockDev." << " => " <<
     std::setw(12) << "ErrBeforeSync" << " => " <<
     std::setw(12) << "ErrAfterSync" << " => " <<
@@ -449,7 +478,7 @@ void PTPNetwork::printClockValuesOfNodes(
       node->getLocalTime().GetNanoSeconds() - 
       masterNode->getLocalTime().GetNanoSeconds()
     );
-    std::cout << std::setw(6) << j << "    " <<
+    clockValuesLog << std::setw(6) << j << "    " <<
       std::setw(12) << node->getClockError() << "    " <<
       std::setw(12) << "EBS N/A" << "    " <<
       std::setw(12) << "EAS N/A" << "    " <<
@@ -468,8 +497,10 @@ void PTPNetwork::printClockValuesOfNodes(
       std::setw(2) << node->getReceivedPacketCounter(DRPLY) << " [rx]    " <<
       std::endl;;
   }
-  std::cout << "----------------------------------------- " << std::endl;
-  std::cout << std::endl << std::endl;
+  clockValuesLog << "----------------------------------------- " << std::endl;
+  clockValuesLog << std::endl << std::endl;
+
+  NS_LOG_DEBUG(clockValuesLog.str());
 }
 
 void PTPNetwork::setAnimationInterface(
@@ -481,4 +512,10 @@ void PTPNetwork::setAnimationInterface(
 
 void PTPNetwork::setSimulationIterations(int iterations) {
   m_iterations = iterations;
+}
+
+void PTPNetwork::closeLogs() {
+  for(uint32_t i=0; i < m_fileStreams.size(); i++) {
+    m_fileStreams[i]->close();
+  }
 }

@@ -48,6 +48,7 @@ typedef struct PtpMessage {
   uint16_t txNodeId;
   uint16_t txNodeHop;
   PtpMessageType_t messageType;
+  uint64_t syncId;
   int eventId;
   int64_t timeStamp;
 } PtpMessage_t;
