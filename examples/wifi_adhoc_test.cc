@@ -17,15 +17,13 @@
  * 
  * Test IEEE 1588 PTP in wireless environment.
  */
-
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/netanim-module.h"
-#include "ptp-network.h"
-#include "ptp-node.h"
+#include "ns3/ptp-module.h"
 
 using namespace ns3;
 
@@ -36,6 +34,7 @@ int main(int argc, char **argv) {
   uint32_t packetSize = 1024; // Bytes
   uint8_t interval = 5; // nanoseconds
   uint32_t nUsers = 6; // Number of users
+  std::string logdir ("");
 
   /* Setup Command Line Arguments */
   CommandLine cmd;
@@ -44,7 +43,10 @@ int main(int argc, char **argv) {
   cmd.AddValue("packetSize", "size of application packet sent", packetSize);
   cmd.AddValue("interval", "interval (seconds) between packets", interval);
   cmd.AddValue("users", "Number of receivers", nUsers);
+  cmd.AddValue("logdir", "Directory to write statistics to", logdir);
   cmd.Parse(argc, argv);
+
+  NS_LOG_COMPONENT_DEFINE("PTP_WifiAdhoc_Example");
 
   // Convert to time object
   Time interPacketInterval = NanoSeconds(interval);
@@ -57,6 +59,8 @@ int main(int argc, char **argv) {
   // Fix non-unicast data rate to be the same as that of unicast
   Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode",
     StringValue (phyMode));
+
+  ns3::PacketMetadata::Enable ();
 
   // Create nodes
   // Not only create `nUsers` nodes for PTP terminals,
@@ -159,15 +163,16 @@ int main(int argc, char **argv) {
   // List of socket links established in the network
   std::vector<SocketLink *> socketLinks(10);
 
-  uint16_t i, j, socket_count=0, srcPort, dstPort;
+  uint16_t i, j, socket_count=0, srcPort;
 
   // create Ipv4 address 
+  
   for( i=0; i < nUsers + 1;i++){
     ipv4Address[i] = Ipv4Address(ipv4Add[i]);
   }
 
   // Create neighbor nodes
-  PTPNetwork ptpTest(nUsers, packetSize, interPacketInterval);
+  PTPNetwork ptpTest(nUsers, packetSize, interPacketInterval, logdir);
   
   // socketIndex[0] = -1;
   for(i = 0; i < nUsers; i++) {
@@ -213,33 +218,42 @@ int main(int argc, char **argv) {
     }
     ptpTest.addNode(staticNodes[i]);
     // Create Socket for simulating network traffic
-    srcPort = i * 1000;
-    dstPort = nUsers * 1000 + i;
-    Ptr<Socket> rxTrafficSocket = Socket::CreateSocket(nodes.Get(i), tcpId);
-    rxTrafficSocket->Bind(InetSocketAddress(ipv4Address[i], srcPort));
-    rxTrafficSocket->Connect(InetSocketAddress(ipv4Address[nUsers], dstPort));
-    rxTrafficSocket->SetRecvCallback(&PTPNetwork::recvTcpTraffic, &ptpTest);
-    Ptr<Socket> txTrafficSocket = Socket::CreateSocket(nodes.Get(nUsers), tcpId);
-    txTrafficSocket->Bind(InetSocketAddress(ipv4Address[nUsers], dstPort));
-    txTrafficSocket->Connect(InetSocketAddress(ipv4Address[i], srcPort));
-    txTrafficSocket->SetRecvCallback(&PTPNetwork::recvTcpTraffic, &ptpTest);
-    ptpTest.addTrafficSocket(
-      new SocketLink(
-        nUsers, i, ipv4Address[nUsers], dstPort, ipv4Address[i], srcPort,
-        txTrafficSocket
-      ),
-      new SocketLink(
-        i, nUsers, ipv4Address[i], srcPort, ipv4Address[nUsers], dstPort,
-        rxTrafficSocket
-      )
-    );
+    // srcPort = (i + 1) * 1000;
+    // dstPort = nUsers * 1000 + (i + 1);
+    // Ptr<Socket> rxTrafficSocket = Socket::CreateSocket(nodes.Get(i), tcpId);
+    // rxTrafficSocket->Bind(InetSocketAddress(ipv4Address[i], srcPort));
+    // rxTrafficSocket->Connect(InetSocketAddress(ipv4Address[nUsers], dstPort));
+    // rxTrafficSocket->SetAcceptCallback(
+    //   MakeNullCallback<bool, Ptr<Socket>, const Address &> (),
+    //   MakeNullCallback<void, Ptr<Socket>, const Address &> ()
+    // );
+    // rxTrafficSocket->Listen();
+    // rxTrafficSocket->SetRecvCallback(
+    //   MakeCallback(&PTPNetwork::recvTcpTraffic, &ptpTest)
+    // );
+    // Ptr<Socket> txTrafficSocket = Socket::CreateSocket(nodes.Get(nUsers), tcpId);
+    // txTrafficSocket->Bind(InetSocketAddress(ipv4Address[nUsers], dstPort));
+    // txTrafficSocket->Connect(InetSocketAddress(ipv4Address[i], srcPort));
+    // txTrafficSocket->SetRecvCallback(
+    //   MakeCallback(&PTPNetwork::recvTcpTraffic, &ptpTest)
+    // );
+    // ptpTest.addTrafficSocket(
+    //   new SocketLink(
+    //     nUsers, i, ipv4Address[nUsers], dstPort, ipv4Address[i], srcPort,
+    //     txTrafficSocket
+    //   ),
+    //   new SocketLink(
+    //     i, nUsers, ipv4Address[i], srcPort, ipv4Address[nUsers], dstPort,
+    //     rxTrafficSocket
+    //   )
+    // );
   }
 
   Ipv4GlobalRoutingHelper::PopulateRoutingTables();
   // Pcap tracing
   wifiPhy.EnablePcap ("ptp-wifi-broadcast", devices);
 
-  AnimationInterface anim("ptp-test.xml");
+  AnimationInterface anim(logdir + "ptp-test.xml");
   anim.SetConstantPosition(nodes.Get(0), 0.0, 15.0);
   anim.SetConstantPosition(nodes.Get(1), 4.0, 15.0);
   anim.SetConstantPosition(nodes.Get(2), 8.0, 15.0);
@@ -254,12 +268,12 @@ int main(int argc, char **argv) {
   ptpTest.setAnimationInterface(
     &anim, clkOffsetCounterId
   );
-  ptpTest.setSimulationIterations(10);
+  ptpTest.setSimulationIterations(2);
   
-  Simulator::ScheduleWithContext(
-    nUsers, Seconds(1.0), &PTPNetwork::startTcpTraffic, &ptpTest,
-    Seconds(1.0), 1024
-  );
+  // Simulator::ScheduleWithContext(
+  //   nUsers, Seconds(1.0), &PTPNetwork::startTcpTraffic, &ptpTest,
+  //   NanoSeconds(1000000), 1024
+  // );
 
   Simulator::ScheduleWithContext(
     neighbor[0][0]->GetNode()->GetId(),

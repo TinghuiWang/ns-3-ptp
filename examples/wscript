@@ -1,6 +1,8 @@
 # -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
 
 def build(bld):
-    obj = bld.create_ns3_program('ptp-example', ['ptp'])
-    obj.source = 'ptp-example.cc'
+    obj = bld.create_ns3_program('ptp-wifi-adhoc', ['ptp', 'wifi', 'network', 'mobility', 'netanim'])
+    obj.source = 'wifi_adhoc_test.cc'
 
+    obj = bld.create_ns3_program('ptp-csma', ['ptp', 'network', 'netanim', 'application'])
+    obj.source = 'csma_test.cc'
